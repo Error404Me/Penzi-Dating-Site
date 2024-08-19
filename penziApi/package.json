@@ -1,0 +1,24 @@
+{
+  "name": "penziapi",
+  "version": "1.0.0",
+  "description": "",
+  "main": "Server.js",
+  "type": "module",
+  "scripts": {
+    "start": "node Server.js",
+    "dev": "nodemon Server.js"
+  },
+  "keywords": [],
+  "author": "Japhet Zebedeo",
+  "license": "ISC",
+  "dependencies": {
+    "body-parser": "^1.20.2",
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.5",
+    "express": "^4.19.2",
+    "mssql": "^11.0.1",
+    "mysql": "^2.18.1",
+    "nodemon": "^3.1.4",
+    "tedious": "^18.3.0"
+  }
+}
