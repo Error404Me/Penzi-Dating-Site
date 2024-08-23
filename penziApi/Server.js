@@ -1,52 +1,34 @@
 import express from 'express';
 import bodyParser from 'body-parser';
-import sql from 'mssql';
-import cors from 'cors';  // Import the cors package
+import cors from 'cors';
 import smsRoutes from './Routes/smsRoutes.js';
-import db from './Config/db.js'; // Adjust the path to match your actual file location
+import { initializeDatabase } from './Controllers/dbinit.js';
 
 const app = express();
 
 // Middleware to handle CORS
 app.use(cors({
-    origin: 'http://localhost:3000', // Replace with your frontend URL if different
-    methods: ['GET', 'POST', 'PUT', 'DELETE'], // Adjust methods as needed
-    allowedHeaders: ['Content-Type', 'Authorization'], // Adjust headers as needed
+  origin: 'http://localhost:3000', 
+  methods: ['GET', 'POST', 'PUT', 'DELETE'], 
+  allowedHeaders: ['Content-Type', 'Authorization'], 
 }));
 
 // Middleware
 app.use(bodyParser.json());
 app.use(bodyParser.urlencoded({ extended: true }));
 
-// Database connection using a connection pool
-const poolPromise = sql.connect(db)
-    .then(pool => {
-        if (pool.connected) {
-            console.log('Connected to MSSQL database.');
-            return pool;
-        }
-        throw new Error('Database connection failed.');
-    })
-    .catch(err => {
-        console.error('Database connection failed:', err);
-        process.exit(1);
+// Initialize the database and then start the server
+initializeDatabase()
+  .then(() => {
+    // Set up routes after the database has been initialized
+    smsRoutes(app);
+
+    const PORT = process.env.PORT || 3000;
+    app.listen(PORT, () => {
+      console.log(`Server is running on port ${PORT}`);
     });
-
-// Make the database connection available in the request object
-app.use(async (req, res, next) => {
-    try {
-        req.db = await poolPromise;
-        next();
-    } catch (err) {
-        res.status(500).send('Database connection error');
-    }
-});
-
-// Use routes
-smsRoutes(app);
-
-// Start the server
-const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => {
-    console.log(`Server is running on port ${PORT}`);
-});
+  })
+  .catch((err) => {
+    console.error('Failed to initialize the database:', err);
+    process.exit(1); // Exit the process with a failure code if initialization fails
+  });

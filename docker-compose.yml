@@ -1,0 +1,34 @@
+# 
+services:
+  db:
+    image: mysql:8.0
+    restart: always
+    environment:
+      MYSQL_ROOT_PASSWORD: penzi
+      MYSQL_DATABASE: penzi
+    ports:
+      - "3306:3306"
+    volumes:
+      - db2:/var/lib/mysql
+  backend:
+    build: ./penziApi
+    ports:
+      - "8080:8080"
+    depends_on:
+      - db
+    environment:
+      DB_HOST: db
+      DB_USER: root
+      DB_PASSWORD: penzi
+      DB_NAME: penzi
+
+
+  frontend:
+    build: ./penziClient
+    container_name: frontend
+    ports:
+      - "3000:3000"
+    
+
+volumes:
+  db2:

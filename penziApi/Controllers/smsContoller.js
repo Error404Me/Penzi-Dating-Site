@@ -1,10 +1,19 @@
-import sql from "mssql";
+import mysql from "mysql2/promise";
 import cors from "cors";
 import express from "express";
 
 const app = express();
 app.use(cors());
 app.use(express.json());
+
+// Create MySQL connection pool
+const pool = mysql.createPool({
+  host: 'localhost',
+  user: 'root',
+  password: 'password', 
+  database: 'Penzi_Dating_Site'
+});
+
 // List of valid counties
 const validCounties = [
   "Bomet", "Bungoma", "Busia", "Elgeyo Marakwet", "Embu", "Garissa", "Homa Bay",
@@ -16,7 +25,6 @@ const validCounties = [
   "West Pokot", "Wote"
 ];
 
-// Helper function to log query parameters
 const logQueryParameters = (params) => {
   console.log("Query Parameters:", params);
 };
@@ -46,12 +54,14 @@ const activateService = async (req, res) => {
   console.log('Received phoneNumber:', phoneNumber);
 
   try {
-    // Check if the phone number already exists in the database
-    const checkQuery = `SELECT COUNT(*) AS count FROM users WHERE phone = @phone`;
-    const checkRequest = new sql.Request();
-    checkRequest.input("phone", sql.VarChar, phoneNumber);
-    const checkResult = await checkRequest.query(checkQuery);
-    const phoneExists = checkResult.recordset[0].count > 0;
+    const connection = await pool.getConnection();
+    const [rows] = await connection.execute(
+      'SELECT COUNT(*) AS count FROM users WHERE phone = ?',
+      [phoneNumber]
+    );
+    connection.release();
+
+    const phoneExists = rows[0].count > 0;
 
     if (phoneExists) {
       console.log("Phone number already activated.");
@@ -59,8 +69,7 @@ const activateService = async (req, res) => {
     } else {
       console.log("Activating service");
       sendSMS(
-        phoneNumber,
-        "Welcome to our dating service with 6000 potential dating partners! To register SMS start#name#age#gender#county#town to 22141. E.g., start#John Doe#26#Male#Nakuru#Naivasha"
+        `Welcome to our dating service with 6000 potential dating partners! To register SMS start#name#age#gender#county#town to 22141. E.g., start#John Doe#26#Male#Nakuru#Naivasha`
       );
       res.status(200).send("Welcome to our dating service with 6000 potential dating partners! To register SMS start#name#age#gender#county#town to 22141. E.g., start#John Doe#26#Male#Nakuru#Naivasha");
     }
@@ -70,12 +79,11 @@ const activateService = async (req, res) => {
   }
 };
 
-
 // Register User
 const registerUser = async (req, res) => {
   console.log("Received request body:", req.body);
 
-  const { payload,phoneNumber } = req.body;
+  const { payload, phoneNumber } = req.body;
 
   // Check if 'payload' is undefined or null
   if (!payload) {
@@ -96,18 +104,13 @@ const registerUser = async (req, res) => {
   console.log(command, name, age, gender, county, town);
 
   try {
+    const connection = await pool.getConnection();
     const query = `
-      INSERT INTO users (phone,name, age, gender, county, town) 
-      VALUES (@phone,@name, @age, @gender, @county, @town)`;
-
-    const request = new sql.Request();
-    request.input("phone", sql.VarChar, phoneNumber);
-
-    request.input("name", sql.VarChar, name);
-    request.input("age", sql.Int, parseInt(age)); 
-    request.input("gender", sql.VarChar, gender);
-    request.input("county", sql.VarChar, county);
-    request.input("town", sql.VarChar, town);
+      INSERT INTO users (phone, name, age, gender, county, town) 
+      VALUES (?, ?, ?, ?, ?, ?)
+    `;
+    await connection.execute(query, [phoneNumber, name, parseInt(age), gender, county, town]);
+    connection.release();
 
     // Log the query parameters
     logQueryParameters({
@@ -118,8 +121,6 @@ const registerUser = async (req, res) => {
       county: county,
       town: town,
     });
-
-    await request.query(query);
 
     console.log(`User ${name} registered successfully.`);
     sendSMS(
@@ -134,7 +135,7 @@ const registerUser = async (req, res) => {
 
 // Register Details
 const registerDetails = async (req, res) => {
-  const { payload, phoneNumber } = req.body; // Extract payload and phoneNumber from request body
+  const { payload, phoneNumber } = req.body;
   const [
     command,
     levelOfEducation,
@@ -152,35 +153,31 @@ const registerDetails = async (req, res) => {
   }
 
   try {
-    // Check if the user exists
-    const checkQuery = `SELECT COUNT(*) AS count FROM users WHERE phone = @phoneNumber`;
-    const checkRequest = new sql.Request();
-    checkRequest.input("phoneNumber", sql.VarChar, phoneNumber); // Use phoneNumber to check user existence
-    const checkResult = await checkRequest.query(checkQuery);
-    const userExists = checkResult.recordset[0].count > 0;
+    const connection = await pool.getConnection();
+    const [rows] = await connection.execute(
+      'SELECT COUNT(*) AS count FROM users WHERE phone = ?',
+      [phoneNumber]
+    );
+    
+    const userExists = rows[0].count > 0;
 
     if (!userExists) {
       console.log("User does not exist.");
       return res.status(400).send("No user found.");
     }
 
-    // Update user details
     const query = `
       UPDATE users 
-      SET level_of_education = @levelOfEducation, 
-          profession = @profession, 
-          marital_status = @maritalStatus, 
-          religion = @religion, 
-          ethnicity = @ethnicity 
-      WHERE phone = @phoneNumber`;
+      SET level_of_education = ?, 
+          profession = ?, 
+          marital_status = ?, 
+          religion = ?, 
+          ethnicity = ? 
+      WHERE phone = ?
+    `;
 
-    const request = new sql.Request();
-    request.input("levelOfEducation", sql.VarChar, levelOfEducation);
-    request.input("profession", sql.VarChar, profession);
-    request.input("maritalStatus", sql.VarChar, maritalStatus);
-    request.input("religion", sql.VarChar, religion);
-    request.input("ethnicity", sql.VarChar, ethnicity);
-    request.input("phoneNumber", sql.VarChar, phoneNumber); // Add phoneNumber input
+    await connection.execute(query, [levelOfEducation, profession, maritalStatus, religion, ethnicity, phoneNumber]);
+    connection.release();
 
     // Log the query parameters
     logQueryParameters({
@@ -189,10 +186,8 @@ const registerDetails = async (req, res) => {
       maritalStatus: maritalStatus,
       religion: religion,
       ethnicity: ethnicity,
-      phoneNumber: phoneNumber, // Log phoneNumber
+      phoneNumber: phoneNumber,
     });
-
-    await request.query(query);
 
     console.log("Details updated successfully.");
     sendSMS(
@@ -233,150 +228,122 @@ const registerSelfDescription = async (req, res) => {
   }
 
   try {
-    const request = new sql.Request();
-    request.input("description", sql.VarChar, description);
-    request.input("phoneNumber", sql.VarChar, phoneNumber);
-
-    // Log the query parameters
-    logQueryParameters({
-      description: description,
-      phoneNumber: phoneNumber,
-    });
-
+    const connection = await pool.getConnection();
     const query = `
       UPDATE users 
-      SET description = @description 
-      WHERE phone = @phoneNumber`;
-
-    await request.query(query);
+      SET description = ? 
+      WHERE phone = ?
+    `;
+    await connection.execute(query, [description, phoneNumber]);
+    connection.release();
 
     console.log("Self-description updated successfully.");
 
     // Send confirmation SMS
     sendSMS(
       "Self-description registered successfully. To search for a MPENZI, SMS match#age#town to 22141."
-
     );
 
-    res.status(200).send( "You are now registered for dating. To search for a MPENZI, SMS match#age#town to 22141 and meet the person of your dreams. E.g., match#23-25#Kisumu");
+    res.status(200).send("You are now registered for dating. To search for a MPENZI, SMS match#age#town to 22141 and meet the person of your dreams. E.g., match#23-25#Kisumu");
   } catch (err) {
     console.error("Error updating self-description:", err);
     res.status(500).send(`Error updating self-description: ${err.message}`);
   }
 };
 
-
-
 // Handle Matching Request
 const handleMatchingRequest = async (req, res) => {
   const { payload } = req.body;
 
-  // Ensure payload is provided
+  // Ensure 'payload' is provided
   if (!payload) {
     console.error("Payload is missing.");
     return res.status(400).send("Payload is missing.");
   }
 
-  // Split payload into parts
-  const parts = payload.split("#");
-  if (parts.length !== 3) {
+  const [command, ageRange, town] = payload.split("#");
+
+  if (command !== "match" || !ageRange || !town) {
     console.error("Invalid payload format.");
-    return res.status(400).send("Invalid payload format. Expected format: match#ageRange#town");
+    return res.status(400).send("Invalid payload format.");
   }
 
-  const [command, ageRange, town] = parts;
+  console.log(`Handling matching request: ${payload}`);
 
-  // Validate command
-  if (command !== "match") {
-    console.error(`Invalid command received: ${command}`);
-    return res.status(400).send(`Invalid command received: ${command}. Expected 'match'.`);
-  }
-
-  // Validate and parse age range
-  const [minAge, maxAge] = ageRange.split("-");
-  if (!minAge || !maxAge || isNaN(minAge) || isNaN(maxAge)) {
-    console.error("Invalid age range format.");
-    return res.status(400).send("Invalid age range format. Expected format: minAge-maxAge");
+  // Validate town
+  if (!validCounties.includes(town)) {
+    console.error("Invalid town.");
+    return res.status(400).send("Invalid town. Please provide a valid town from the list of valid counties.");
   }
 
   try {
-    // Fetch initial matches
-    const query = `
-      SELECT TOP 3 name, age
-      FROM users
-      WHERE age BETWEEN @minAge AND @maxAge
-        AND town = @town
-      ORDER BY NEWID(); -- Randomize results if needed
-    `;
+    const connection = await pool.getConnection();
+    const [rows] = await connection.execute(
+      `
+      SELECT name, age, gender, county, town, description 
+      FROM users 
+      WHERE age BETWEEN ? AND ? AND town = ? AND gender != (SELECT gender FROM users WHERE phone = ?)
+      `,
+      [...ageRange.split("-").map(Number), town, phoneNumber]
+    );
+    connection.release();
 
-    const request = new sql.Request();
-    request.input("minAge", sql.Int, parseInt(minAge));
-    request.input("maxAge", sql.Int, parseInt(maxAge));
-    request.input("town", sql.VarChar, town);
+    // Log the query parameters
+    logQueryParameters({
+      ageRange: ageRange,
+      town: town,
+      phoneNumber: phoneNumber,
+    });
 
-    const result = await request.query(query);
-    const matches = result.recordset;
-
-    if (matches.length === 0) {
+    if (rows.length === 0) {
       console.log("No matches found.");
-      return res.status(200).send("No matches found for the given criteria.");
+      return res.status(200).send("No matches found.");
     }
 
-    // Construct SMS message with match details
-    const message = `
-      We have ${matches.length} matches for you! Here are the details of 3 of them:
-      ${matches.map(match => `${match.name} aged ${match.age}.`).join("\n")}
-      Send NEXT to 22141 to receive details of more matches.
-    `;
-
-    // Send SMS with match details
-    sendSMS(message);
-    res.status(200).send(message);
+    console.log("Matches found:", rows);
+    sendSMS("Matches found. Check your profile for details.");
+    res.status(200).json(rows);
   } catch (err) {
-    console.error("Error fetching matching users:", err);
-    res.status(500).send(`Error fetching matching users: ${err.message}`);
+    console.error("Error handling matching request:", err);
+    res.status(500).send(`Error handling matching request: ${err.message}`);
   }
 };
 // Handle Subsequent Details
 const handleSubsequentDetails = async (req, res) => {
-  const { payload } = req.body; // Extract payload from request body
-  const [command, page] = payload.split("#"); // Assume page is passed to determine offset
+  const { payload } = req.body; 
+  const [command, page] = payload.split("#"); 
 
   if (command !== "NEXT") {
     return res.status(400).send(`Invalid command received: ${command}`);
   }
 
   // Default page size and page number
-  const pageSize = 3; // Number of results per page
-  const pageNumber = parseInt(page, 10) || 1; // Page number, defaults to 1
+  const pageSize = 3; 
+  const pageNumber = parseInt(page, 10) || 1; 
 
   // Calculate offset
   const offset = (pageNumber - 1) * pageSize;
 
   try {
+    const connection = await pool.getConnection();
+
     // Fetch subsequent matches with dynamic pagination
-    const query = `
+    const [rows] = await connection.execute(
+      `
       SELECT name, age
       FROM users
-      WHERE age BETWEEN @minAge AND @maxAge
-        AND town = @town
+      WHERE age BETWEEN ? AND ?
+        AND town = ?
       ORDER BY name
-      OFFSET @offset ROWS
-      FETCH NEXT @fetch ROWS ONLY;
-    `;
+      LIMIT ? OFFSET ?;
+      `,
+      [23, 25, "Kisumu", pageSize, offset] 
+    );
 
-    const request = new sql.Request();
-    request.input("minAge", sql.Int, 23); 
-    request.input("maxAge", sql.Int, 25); 
-    request.input("town", sql.VarChar, "Kisumu"); 
-    request.input("offset", sql.Int, offset); // Dynamic offset
-    request.input("fetch", sql.Int, pageSize); // Fetch the number of results per page
-
-    const result = await request.query(query);
-    const matches = result.recordset;
+    connection.release();
 
     // Check if there are no more matches to show
-    if (matches.length === 0) {
+    if (rows.length === 0) {
       const message = "No more matches available.";
       sendSMS(message);
       return res.status(200).send(message);
@@ -384,7 +351,7 @@ const handleSubsequentDetails = async (req, res) => {
 
     // Send SMS with match details
     const message = `
-      ${matches.map(match => `${match.name} aged ${match.age}.`).join("\n")}
+      ${rows.map(match => `${match.name} aged ${match.age}.`).join("\n")}
       Send NEXT to 22141 to receive details of more matches.
     `;
 
@@ -398,11 +365,11 @@ const handleSubsequentDetails = async (req, res) => {
 
 
 
+
 // Handle User Confirmation
 const handleUserConfirmation = async (req, res) => {
   const { payload } = req.body;
-  const [command, phoneNumber] = payload.split("#"); // Expecting phoneNumber in the payload for user identification
-
+  const [command, phoneNumber] = payload.split("#"); 
   console.log(`Handling user confirmation: ${payload}`);
 
   if (command !== "YES") {
@@ -411,18 +378,21 @@ const handleUserConfirmation = async (req, res) => {
   }
 
   try {
+    const connection = await pool.getConnection();
+
     // Fetch user details from the database
-    const query = `
+    const [rows] = await connection.execute(
+      `
       SELECT name, age, county, town, level_of_education, profession, marital_status, religion, ethnicity
       FROM users
-      WHERE phone = @phoneNumber
-    `;
+      WHERE phone = ?
+      `,
+      [phoneNumber]
+    );
 
-    const request = new sql.Request();
-    request.input("phoneNumber", sql.VarChar, phoneNumber);
+    connection.release();
 
-    const result = await request.query(query);
-    const user = result.recordset[0];
+    const user = rows[0];
 
     if (!user) {
       console.log("User not found.");
@@ -456,13 +426,13 @@ const handleUserConfirmation = async (req, res) => {
   }
 };
 
+
 // Fetch messages
 const fetchMessages = async (req, res) => {
   try {
-    // Example messages; replace with actual database logic
     const messages = [
       { text: 'Congratulations👏Welcome To Our Dating Service! Please enter your phone number, ensuring it starts with 07 or 01 and is exactly 10 digits long e.g., 0712345678 or 0112345678 To Get Started' , sender: 'Onfon' },
-      // Add more example messages or fetch from database
+      
     ];
     res.status(200).json(messages);
   } catch (error) {
